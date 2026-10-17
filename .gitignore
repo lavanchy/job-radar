@@ -1,0 +1,6 @@
+*.env
+.env*
+.vault/
+node_modules/
+.claude/
+credentials/
