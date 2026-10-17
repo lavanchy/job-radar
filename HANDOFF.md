@@ -282,6 +282,44 @@ alle vorherigen Tests (immer mit gepinnten/simulierten Notion-Nodes) nicht zeige
 erwartet "einmal pro Item" — das muss bei jedem neuen Node-Typ mit mehreren echten Items
 verifiziert werden, nicht nur mit gepinnten Einzel-Item-Tests.
 
+## Update (2026-10-17, spaeter Abend) — Fit-Score-Minimum, rueckwirkendes Aufraeumen, Backfill
+
+Nutzerwunsch: "Fitscore unter 40 = Status Verworfen. Sicherstellen dass bei neuer Pruefung
+Stellen nicht doppelt reinkommen. Fuer Grafik ggf. anderen Status nehmen. Schau dass alle
+ein Score haben und nur Bewerbungen mit ausreichendem Score angezeigt werden."
+
+1. **Neue Einstellung `fit_score_minimum` = 40** in der Einstellungen-DB angelegt. Der
+   Fit-Score-Workflow liest sie jetzt zusaetzlich zu `fit_score_threshold` (Default 40, falls
+   nicht gesetzt).
+2. **Neue Verzweigung im Fit-Score-Workflow:** Nach "Threshold erreicht?" (FALSE-Zweig) prueft
+   ein neuer IF-Node **"Unter Minimum?"** (`fitScore < fitScoreMinimum`):
+   - TRUE → neuer Notion-Node **"Treffer aktualisieren: Verworfen"** setzt Status = "Verworfen".
+   - FALSE → wie bisher "Treffer aktualisieren: Zur Sichtung" (Status = "Neu").
+   Live im n8n-Workflow `PuG9xKs9Wqj9a0Z6` angewendet und lokal in
+   `workflows/fit-score-auto-apply.json` resynchronisiert.
+3. **Audit der 450 bestehenden Treffer** per SQL (`notion-query-data-sources`):
+   450 total, davon 379 ohne Fit-Score (nie bewertet, Folge des fruehen Rate-Limit-Chaos aus
+   dem vorherigen Vorfall) und 60 mit Fit-Score < 40 aber Status noch "Neu".
+4. **Alle 60 niedrig bewerteten Treffer rueckwirkend auf Status "Verworfen" gesetzt**
+   (einzeln per `notion-update-page`, verifiziert per Re-Audit: `still_wrong = 0`).
+5. **Dedup bei neuer Pruefung ist bereits gehaertet** (siehe Vorfall-Abschnitt oben,
+   Bulk-Hash-Abgleich + `executeOnce`) — nochmals bestaetigt, kein weiterer Fix notwendig.
+6. **Neuer Workflow `workflows/backfill-fit-score.json`** (n8n-ID `VhlCNPhKWxrRilTp`):
+   holt alle Treffer ohne Fit-Score (Notion-Node-Filter "isEmpty" auf Zahlen-Feld wird vom
+   Notion-Node selbst NICHT unterstuetzt — Live-Fehler bestaetigt — deshalb Bulk-Fetch +
+   In-Memory-Filter-Node "Nur ohne Fit-Score", gleiches Muster wie der Dedup-Check im
+   Collector), und ruft pro Treffer sequenziell (`waitForSubWorkflow:true`, batchSize 1) den
+   Fit-Score-Workflow auf — bewusst sequenziell statt fire-and-forget, um nach dem
+   Rate-Limit-Vorfall keine 379 gleichzeitigen Anthropic/Notion-Calls auszuloesen.
+   Laeuft als woechentlicher Schedule-Trigger (Sicherheitsnetz fuer zukuenftig verpasste
+   Scores) und wurde direkt live gegen alle 379 fehlenden Treffer gestartet
+   (Execution-ID 12791 in Workflow `VhlCNPhKWxrRilTp`).
+7. **Grafik-Feld:** Die Treffer-DB hat bereits ein separates, bisher ungenutztes Feld
+   "Bewerbungsphase" (aktuell leer bei allen Treffern). Fuer den Funnel/Sankey-Chart wird NICHT
+   dieses Feld befuellt, sondern direkt aus dem bestehenden operativen `Status` + `Fit-Score`
+   abgeleitet (Gefunden → Bewertet → Relevant [nicht Verworfen] → Beworben), damit es keine
+   zweite, staendig nachzupflegende Quelle der Wahrheit gibt.
+
 ## Nächste Schritte
 
 1. **EURES-API verifizieren** (optional, zusätzliche Quelle): per Browser-DevTools auf
@@ -290,9 +328,13 @@ verifiziert werden, nicht nur mit gepinnten Einzel-Item-Tests.
 3. Entscheiden ob der Einrichtungs-Agent veröffentlicht werden soll.
 4. Gehaltsvorstellung in Profil ergänzen, falls gewünscht (aktuell bewusst leer).
 5. Testdaten aufräumen: Treffer-Seite "TEST: Data Engineer (n8n)"
-   (`3fc2b546-7b82-81fc-a327-f6446a0fcad9`) kann gelöscht werden.
+   (`3fc2b546-7b82-81fc-a327-f6446a0fcad9`) kann gelöscht werden — aktuell Status "Verworfen"
+   (Fit-Score 0), stört also nicht mehr aktiv.
 6. AMS "alle jobs" bleibt als unverifizierter Kandidat dokumentiert (RSS-Bridge-Ansatz
    überholt — bei Bedarf gleiches Scraping-Muster wie karriere.at anwenden, falls robots.txt
    das erlaubt — noch nicht geprüft).
-7. Optional: die 324 "Requirements Engineering"-Treffer mit niedrigem Fit-Score durchsehen und
-   bei Bedarf auf Status "Verworfen" setzen oder löschen, um die Treffer-DB aufzuräumen.
+7. ~~Optional: die 324 "Requirements Engineering"-Treffer mit niedrigem Fit-Score durchsehen~~
+   — erledigt, siehe Update oben (alle 60 Treffer < 40 Punkte sind jetzt "Verworfen").
+8. Backfill-Lauf (Execution 12791) abschliessen lassen und Endergebnis pruefen (379 Treffer
+   nachbewertet) — danach `workflows/backfill-fit-score.json` optional in n8n aktivieren
+   (woechentlicher Schedule) oder deaktiviert lassen und nur manuell bei Bedarf ausfuehren.
