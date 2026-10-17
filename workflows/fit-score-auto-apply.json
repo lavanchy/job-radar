@@ -1,0 +1,249 @@
+{
+  "name": "job-radar: Fit-Score & Auto-Apply",
+  "nodes": [
+    {
+      "id": "8b8834e4-26b8-402b-ab0f-788f43ec5748",
+      "name": "Start: Treffer-ID empfangen",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 256],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": { "values": [{ "name": "trefferPageId", "type": "string" }] }
+      }
+    },
+    {
+      "id": "0489298e-6e81-46f2-89cf-f32174279b57",
+      "name": "Get Treffer",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [448, 64],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "get",
+        "pageId": { "__rl": true, "mode": "id", "value": "={{ $json.trefferPageId }}" },
+        "simple": true
+      },
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "181edd8b-bf4c-4296-894b-2f583f002d79",
+      "name": "Kontext zusammenfuehren",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [672, 240],
+      "parameters": { "mode": "combine", "combineBy": "combineByPosition", "numberInputs": 3 }
+    },
+    {
+      "id": "0c931067-56c6-4320-a4a6-758fb8e1393d",
+      "name": "Fit-Score ermitteln",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [896, 256],
+      "parameters": {
+        "promptType": "define",
+        "hasOutputParser": true,
+        "text": "=Du bist ein Recruiting-Assistent. Bewerte, wie gut die folgende Stellenanzeige zum Profil der Person passt (0-100 Prozent).\n\n--- PROFIL ---\n{{ $(\"Format Profil\").item.json.profilText }}\n\n--- STELLENANZEIGE ---\nTitel: {{ $(\"Get Treffer\").item.json.property_titel }}\nFirma: {{ $(\"Get Treffer\").item.json.property_firma }}\nBeschreibung: {{ $(\"Get Treffer\").item.json.property_beschreibung }}\n\nGib einen Fit-Score (0-100) und eine kurze Begruendung (1-2 Saetze) zurueck.",
+        "options": { "systemMessage": "Du bewertest Stellenanzeigen objektiv gegen ein Kandidatenprofil und antwortest ausschliesslich im geforderten JSON-Format." }
+      }
+    },
+    {
+      "id": "e3eb7b47-e6cd-4f28-9d96-6d7063f4680b",
+      "name": "Anthropic - Scoring Modell",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.6,
+      "position": [912, 480],
+      "parameters": { "model": { "__rl": true, "mode": "id", "value": "claude-haiku-5-5" }, "options": { "temperature": 0.1 } },
+      "credentials": { "anthropicApi": { "id": "REPLACE_ME", "name": "Anthropic account" } }
+    },
+    {
+      "id": "bc1bbf84-0044-48a7-936b-ebbcb00b82b2",
+      "name": "Fit-Score Format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [1040, 480],
+      "parameters": { "schemaType": "fromJson", "jsonSchemaExample": "{ \"fit_score\": 72, \"begruendung\": \"Kurze Begruendung in 1-2 Saetzen\" }" }
+    },
+    {
+      "id": "be9abed9-10af-4010-b395-b988f60147f5",
+      "name": "Parse Fit-Score",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1248, 256],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "fit-score", "name": "fitScore", "type": "number", "value": "={{ $json.fit_score !== undefined ? Number($json.fit_score) : Number($json.output.fit_score) }}" },
+            { "id": "begruendung", "name": "begruendung", "type": "string", "value": "={{ $json.begruendung !== undefined ? $json.begruendung : $json.output.begruendung }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ebd83592-1d39-46a0-a5fc-b4b9cc063a54",
+      "name": "Threshold erreicht?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1472, 256],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            { "leftValue": "={{ $json.fitScore }}", "operator": { "type": "number", "operation": "gte" }, "rightValue": "={{ $(\"Format Einstellungen\").item.json.fitScoreThreshold }}" }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "989579eb-873f-42d2-a7f1-3f31a22263f4",
+      "name": "Bewerbung erstellen",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [1696, 0],
+      "parameters": {
+        "promptType": "define",
+        "hasOutputParser": false,
+        "text": "=Du bist ein professioneller Bewerbungsschreiber. Erstelle ein kurzes, direktes Motivationsschreiben (max. 250 Woerter) auf Deutsch, ohne Floskeln, konkret und wo moeglich metrisch fundiert.\n\n--- PROFIL (inkl. Ton-Praeferenz) ---\n{{ $(\"Format Profil\").item.json.profilText }}\n\n--- STELLENANZEIGE ---\nTitel: {{ $(\"Get Treffer\").item.json.property_titel }}\nFirma: {{ $(\"Get Treffer\").item.json.property_firma }}\nBeschreibung: {{ $(\"Get Treffer\").item.json.property_beschreibung }}\n\nGib nur den fertigen Bewerbungstext zurueck, ohne zusaetzliche Kommentare.",
+        "options": { "systemMessage": "Du schreibst ehrliche, metrisch fundierte Bewerbungen ohne KI-Floskeln." }
+      }
+    },
+    {
+      "id": "8d572079-d14c-469b-9daf-629d661932e3",
+      "name": "Anthropic - Bewerbungs-Modell",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.6,
+      "position": [1776, 224],
+      "parameters": { "model": { "__rl": true, "mode": "id", "value": "claude-sonnet-5-5" }, "options": { "temperature": 0.4 } },
+      "credentials": { "anthropicApi": { "id": "REPLACE_ME", "name": "Anthropic account" } }
+    },
+    {
+      "id": "71074ceb-7814-47d8-a3ea-b6031654511d",
+      "name": "Treffer aktualisieren: Auto-beworben",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [2048, 112],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": { "__rl": true, "mode": "id", "value": "={{ $(\"Get Treffer\").item.json.id }}" },
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "Fit-Score|number", "numberValue": "={{ $(\"Parse Fit-Score\").item.json.fitScore }}" },
+            { "key": "Begruendung|rich_text", "textContent": "={{ $(\"Parse Fit-Score\").item.json.begruendung }}" },
+            { "key": "Status|status", "statusValue": "Auto-beworben" },
+            { "key": "Bewerbungstext|rich_text", "textContent": "={{ $json.output }}" }
+          ]
+        },
+        "simple": true
+      },
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "88df6656-e799-422d-bea4-f7c17e0cfd63",
+      "name": "Treffer aktualisieren: Zur Sichtung",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [1760, 400],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": { "__rl": true, "mode": "id", "value": "={{ $(\"Get Treffer\").item.json.id }}" },
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "Fit-Score|number", "numberValue": "={{ $json.fitScore }}" },
+            { "key": "Begruendung|rich_text", "textContent": "={{ $json.begruendung }}" },
+            { "key": "Status|status", "statusValue": "Neu" }
+          ]
+        },
+        "simple": true
+      },
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "438e4faa-1fe8-4960-a9bd-27b71e058f14",
+      "name": "Get Profil Raw",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [224, 256],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_PROFIL_DATA_SOURCE_ID" },
+        "returnAll": true,
+        "simple": true
+      },
+      "alwaysOutputData": true,
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "b0a3bd5d-88db-402f-abbf-00f17265a804",
+      "name": "Format Profil",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [448, 256],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "profil-text", "name": "profilText", "type": "string", "value": "={{ $input.all().map(i => (i.json.property_feld || '') + ': ' + (i.json.property_wert || '(nicht ausgefuellt)')).join('\\n') }}" }
+          ]
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "594c94c5-eaec-475e-9970-a360b5693da9",
+      "name": "Get Einstellungen Raw",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [224, 448],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_EINSTELLUNGEN_DATA_SOURCE_ID" },
+        "returnAll": true,
+        "simple": true
+      },
+      "alwaysOutputData": true,
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "a5ea99e0-b1e8-4d7d-972f-c31ff97c03c5",
+      "name": "Format Einstellungen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [448, 448],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "threshold", "name": "fitScoreThreshold", "type": "number", "value": "={{ Number($input.all().find(i => i.json.property_key === 'fit_score_threshold')?.json.property_value || 70) }}" }
+          ]
+        }
+      },
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Start: Treffer-ID empfangen": { "main": [[{ "node": "Get Treffer", "type": "main", "index": 0 }, { "node": "Get Profil Raw", "type": "main", "index": 0 }, { "node": "Get Einstellungen Raw", "type": "main", "index": 0 }]] },
+    "Get Treffer": { "main": [[{ "node": "Kontext zusammenfuehren", "type": "main", "index": 0 }]] },
+    "Kontext zusammenfuehren": { "main": [[{ "node": "Fit-Score ermitteln", "type": "main", "index": 0 }]] },
+    "Fit-Score ermitteln": { "main": [[{ "node": "Parse Fit-Score", "type": "main", "index": 0 }]] },
+    "Anthropic - Scoring Modell": { "ai_languageModel": [[{ "node": "Fit-Score ermitteln", "type": "ai_languageModel", "index": 0 }]] },
+    "Fit-Score Format": { "ai_outputParser": [[{ "node": "Fit-Score ermitteln", "type": "ai_outputParser", "index": 0 }]] },
+    "Parse Fit-Score": { "main": [[{ "node": "Threshold erreicht?", "type": "main", "index": 0 }]] },
+    "Threshold erreicht?": { "main": [[{ "node": "Bewerbung erstellen", "type": "main", "index": 0 }], [{ "node": "Treffer aktualisieren: Zur Sichtung", "type": "main", "index": 0 }]] },
+    "Bewerbung erstellen": { "main": [[{ "node": "Treffer aktualisieren: Auto-beworben", "type": "main", "index": 0 }]] },
+    "Anthropic - Bewerbungs-Modell": { "ai_languageModel": [[{ "node": "Bewerbung erstellen", "type": "ai_languageModel", "index": 0 }]] },
+    "Get Profil Raw": { "main": [[{ "node": "Format Profil", "type": "main", "index": 0 }]] },
+    "Format Profil": { "main": [[{ "node": "Kontext zusammenfuehren", "type": "main", "index": 1 }]] },
+    "Get Einstellungen Raw": { "main": [[{ "node": "Format Einstellungen", "type": "main", "index": 0 }]] },
+    "Format Einstellungen": { "main": [[{ "node": "Kontext zusammenfuehren", "type": "main", "index": 2 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

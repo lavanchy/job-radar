@@ -1,0 +1,308 @@
+{
+  "name": "job-radar: Collector",
+  "nodes": [
+    {
+      "id": "605f8f9d-e9de-4294-a458-6594e57dd320",
+      "name": "Alle 6 Stunden",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 192],
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] } }
+    },
+    {
+      "id": "8468cdc1-48ff-4c5b-b458-36e11853b4d7",
+      "name": "Aktive Plattformen holen",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [224, 192],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_PLATTFORMEN_DATA_SOURCE_ID" },
+        "returnAll": true,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": { "conditions": [{ "key": "Aktiv|checkbox", "condition": "equals", "checkboxValue": true }] },
+        "simple": true
+      },
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "149432f9-1848-43f6-bd7d-5dc7f3ee0d5f",
+      "name": "Alle Plattformen verarbeitet",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [672, 0],
+      "parameters": {}
+    },
+    {
+      "id": "4f9d5425-aff1-4475-8c5c-ad240bf9e80c",
+      "name": "Plattform: Letzter Lauf setzen",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [672, 192],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": { "__rl": true, "mode": "id", "value": "={{ $json.id }}" },
+        "propertiesUi": { "propertyValues": [{ "key": "Letzter Lauf|date", "date": "={{ $now.toISO() }}", "range": false, "includeTime": true }] },
+        "simple": true
+      },
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "0102c149-abea-4ccc-abde-ae2212095324",
+      "name": "Heartbeat (Loop-Fortsetzung sichern)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2464, 0],
+      "parameters": {}
+    },
+    {
+      "id": "0f10f769-ee75-4ae1-8e06-5a82e787bac5",
+      "name": "Batch abschliessen",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [2688, 384],
+      "parameters": { "mode": "append" }
+    },
+    {
+      "id": "ef94c75b-52e4-42ba-9f57-02eefed60d8e",
+      "name": "Plattform fuer Plattform",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [448, 192],
+      "parameters": { "batchSize": 1 }
+    },
+    {
+      "id": "a1a07450-2f07-4470-8d3b-b00759dceebf",
+      "name": "Strategie routen",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [896, 368],
+      "parameters": {
+        "rules": {
+          "values": [
+            { "outputKey": "rss", "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [{ "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "RSS-native" }, { "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "RSS-Bridge" }], "combinator": "or" } },
+            { "outputKey": "http", "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [{ "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "API" }, { "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "Scraping" }], "combinator": "or" } }
+          ]
+        },
+        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "Unbekannt" }
+      }
+    },
+    {
+      "id": "57a693f8-a257-4e6e-99cf-16000a53dc56",
+      "name": "RSS/RSS-Bridge Feed lesen",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [1120, 176],
+      "parameters": { "url": "={{ $json.property_such_query_oder_feed_url }}" },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "1ebbc786-95ec-42a1-996d-af8d6b2b2070",
+      "name": "RSS normalisieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1344, 176],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "n1", "name": "titel", "type": "string", "value": "={{ $json.title }}" },
+            { "id": "n2", "name": "firma", "type": "string", "value": "={{ $json.creator || $json.author || '' }}" },
+            { "id": "n3", "name": "link", "type": "string", "value": "={{ $json.link }}" },
+            { "id": "n4", "name": "beschreibung", "type": "string", "value": "={{ $json.contentSnippet || $json.content || '' }}" },
+            { "id": "n5", "name": "gefundenAm", "type": "string", "value": "={{ $json.pubDate || $now.toISO() }}" },
+            { "id": "n6", "name": "plattformId", "type": "string", "value": "={{ $(\"Plattform: Letzter Lauf setzen\").item.json.id }}" },
+            { "id": "n7", "name": "plattformName", "type": "string", "value": "={{ $(\"Plattform: Letzter Lauf setzen\").item.json.property_name }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "86b8bb3f-5219-4ec6-93bb-490b755d58ad",
+      "name": "Dedup-Hash berechnen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1568, 288],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": { "assignments": [{ "id": "dh1", "name": "dedupHash", "type": "string", "value": "={{ $json.plattformId + \"::\" + $json.link }}" }] }
+      }
+    },
+    {
+      "id": "7d478e62-c697-4e24-9844-36e924e188a0",
+      "name": "Dedup-Check in Treffer-DB",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [1792, 288],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_TREFFER_DATA_SOURCE_ID" },
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": { "conditions": [{ "key": "Dedup-Hash|rich_text", "condition": "equals", "richTextValue": "={{ $json.dedupHash }}" }] },
+        "simple": true
+      },
+      "alwaysOutputData": true,
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "135abdc5-16ae-4fc3-a2b0-1f7d946e7b0e",
+      "name": "Bereits vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2016, 288],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [{ "leftValue": "={{ $json.id ? \"vorhanden\" : \"leer\" }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "leer" }],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "86e73a3d-ce44-41e7-9a14-0ece1d881005",
+      "name": "Treffer anlegen",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 3,
+      "position": [2240, 192],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_TREFFER_DATA_SOURCE_ID" },
+        "title": "={{ $(\"Dedup-Hash berechnen\").item.json.titel }}",
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "Firma|rich_text", "textContent": "={{ $(\"Dedup-Hash berechnen\").item.json.firma }}" },
+            { "key": "Link|url", "urlValue": "={{ $(\"Dedup-Hash berechnen\").item.json.link }}" },
+            { "key": "Beschreibung|rich_text", "textContent": "={{ $(\"Dedup-Hash berechnen\").item.json.beschreibung }}" },
+            { "key": "Gefunden am|date", "date": "={{ $(\"Dedup-Hash berechnen\").item.json.gefundenAm }}", "range": false, "includeTime": false },
+            { "key": "Plattform|relation", "relationValue": ["={{ $(\"Dedup-Hash berechnen\").item.json.plattformId }}"] },
+            { "key": "Dedup-Hash|rich_text", "textContent": "={{ $(\"Dedup-Hash berechnen\").item.json.dedupHash }}" },
+            { "key": "Status|status", "statusValue": "Neu" }
+          ]
+        },
+        "simple": true
+      },
+      "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "ee5f93fe-eb06-4699-9583-bad5ac1b2c0a",
+      "name": "Fit-Score & Auto-Apply starten",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [2464, 192],
+      "parameters": {
+        "mode": "each",
+        "source": "database",
+        "workflowId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_FIT_SCORE_WORKFLOW_ID" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": { "trefferPageId": "={{ $json.id }}" },
+          "matchingColumns": [],
+          "schema": [{ "id": "trefferPageId", "displayName": "trefferPageId", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" }]
+        },
+        "options": { "waitForSubWorkflow": false }
+      }
+    },
+    {
+      "id": "a8418991-66ab-4578-a743-870ede12cfab",
+      "name": "Duplikat - nichts tun",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2464, 384],
+      "parameters": {}
+    },
+    {
+      "id": "8e801004-0fbe-4ada-b866-15c6aa58683c",
+      "name": "API/Scraping-Quelle abfragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [1120, 416],
+      "parameters": { "method": "GET", "url": "={{ $json.property_such_query_oder_feed_url }}" },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "a54a5b73-c8ce-4fc5-963b-687bc9f7b233",
+      "name": "API/Scraping normalisieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1344, 416],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "h1", "name": "titel", "type": "string", "value": "={{ $json.title || $json.name || $json.job_title || '' }}" },
+            { "id": "h2", "name": "firma", "type": "string", "value": "={{ $json.company || $json.company_name || $json.employer || '' }}" },
+            { "id": "h3", "name": "link", "type": "string", "value": "={{ $json.url || $json.link || $json.absolute_url || '' }}" },
+            { "id": "h4", "name": "beschreibung", "type": "string", "value": "={{ $json.description || $json.content || $json.snippet || '' }}" },
+            { "id": "h5", "name": "gefundenAm", "type": "string", "value": "={{ $now.toISO() }}" },
+            { "id": "h6", "name": "plattformId", "type": "string", "value": "={{ $(\"Plattform: Letzter Lauf setzen\").item.json.id }}" },
+            { "id": "h7", "name": "plattformName", "type": "string", "value": "={{ $(\"Plattform: Letzter Lauf setzen\").item.json.property_name }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "63542932-1717-4a75-99f6-6dff86ebe061",
+      "name": "Unbekannte Strategie ueberspringen",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2464, 576],
+      "parameters": {}
+    },
+    {
+      "id": "1885621f-c5a4-4403-97b3-136327d24078",
+      "name": "RSS-Fehler - ueberspringen",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1120, 288],
+      "parameters": {}
+    },
+    {
+      "id": "e15026d2-7b2c-482a-b426-947e3502e164",
+      "name": "HTTP-Fehler - ueberspringen",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1120, 528],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Alle 6 Stunden": { "main": [[{ "node": "Aktive Plattformen holen", "type": "main", "index": 0 }]] },
+    "Aktive Plattformen holen": { "main": [[{ "node": "Plattform fuer Plattform", "type": "main", "index": 0 }]] },
+    "Plattform: Letzter Lauf setzen": { "main": [[{ "node": "Heartbeat (Loop-Fortsetzung sichern)", "type": "main", "index": 0 }, { "node": "Strategie routen", "type": "main", "index": 0 }]] },
+    "Heartbeat (Loop-Fortsetzung sichern)": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 1 }]] },
+    "Batch abschliessen": { "main": [[{ "node": "Plattform fuer Plattform", "type": "main", "index": 0 }]] },
+    "Plattform fuer Plattform": { "main": [[{ "node": "Alle Plattformen verarbeitet", "type": "main", "index": 0 }], [{ "node": "Plattform: Letzter Lauf setzen", "type": "main", "index": 0 }]] },
+    "Strategie routen": { "main": [[{ "node": "RSS/RSS-Bridge Feed lesen", "type": "main", "index": 0 }], [{ "node": "API/Scraping-Quelle abfragen", "type": "main", "index": 0 }], [{ "node": "Unbekannte Strategie ueberspringen", "type": "main", "index": 0 }]] },
+    "RSS/RSS-Bridge Feed lesen": { "main": [[{ "node": "RSS normalisieren", "type": "main", "index": 0 }], [{ "node": "RSS-Fehler - ueberspringen", "type": "main", "index": 0 }]] },
+    "RSS normalisieren": { "main": [[{ "node": "Dedup-Hash berechnen", "type": "main", "index": 0 }]] },
+    "Dedup-Hash berechnen": { "main": [[{ "node": "Dedup-Check in Treffer-DB", "type": "main", "index": 0 }]] },
+    "Dedup-Check in Treffer-DB": { "main": [[{ "node": "Bereits vorhanden?", "type": "main", "index": 0 }]] },
+    "Bereits vorhanden?": { "main": [[{ "node": "Treffer anlegen", "type": "main", "index": 0 }], [{ "node": "Duplikat - nichts tun", "type": "main", "index": 0 }]] },
+    "Treffer anlegen": { "main": [[{ "node": "Fit-Score & Auto-Apply starten", "type": "main", "index": 0 }]] },
+    "Fit-Score & Auto-Apply starten": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
+    "Duplikat - nichts tun": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
+    "API/Scraping-Quelle abfragen": { "main": [[{ "node": "API/Scraping normalisieren", "type": "main", "index": 0 }], [{ "node": "HTTP-Fehler - ueberspringen", "type": "main", "index": 0 }]] },
+    "API/Scraping normalisieren": { "main": [[{ "node": "Dedup-Hash berechnen", "type": "main", "index": 0 }]] },
+    "Unbekannte Strategie ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
+    "RSS-Fehler - ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
+    "HTTP-Fehler - ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

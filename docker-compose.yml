@@ -1,0 +1,32 @@
+# docker-compose.yml für job-radar
+#
+# Startet NUR RSS-Bridge (https://github.com/RSS-Bridge/rss-bridge) als
+# self-hosted Feed-Generator für Jobbörsen, die keine eigene RSS/API anbieten.
+#
+# n8n selbst ist NICHT Teil dieser Datei — job-radar geht davon aus, dass du
+# bereits eine eigene n8n-Instanz betreibst (lokal, self-hosted oder n8n Cloud).
+# RSS-Bridge liefert n8n lediglich Feed-URLs, die im "RSS Feed Read"-Node
+# abgefragt werden können.
+#
+# Nutzung:
+#   docker compose up -d
+#   Dann im Browser: http://localhost:3000
+#
+# Siehe docs/rss-bridge.md für die vollständige Setup- und Nutzungsanleitung.
+
+services:
+  rss-bridge:
+    image: rssbridge/rss-bridge:latest
+    container_name: job-radar-rss-bridge
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      # Persistiert config.ini.php und whitelist.txt (aktivierte Bridges)
+      # über Container-Neustarts/-Updates hinweg.
+      - ./rss-bridge-config:/config
+
+# ---------------------------------------------------------------------------
+# n8n selbst läuft separat (eigene Instanz / eigenes docker-compose / Cloud).
+# Dieses Compose-File kümmert sich bewusst nur um RSS-Bridge.
+# ---------------------------------------------------------------------------
