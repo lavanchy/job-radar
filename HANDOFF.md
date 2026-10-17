@@ -319,6 +319,22 @@ ein Score haben und nur Bewerbungen mit ausreichendem Score angezeigt werden."
    dieses Feld befuellt, sondern direkt aus dem bestehenden operativen `Status` + `Fit-Score`
    abgeleitet (Gefunden → Bewertet → Relevant [nicht Verworfen] → Beworben), damit es keine
    zweite, staendig nachzupflegende Quelle der Wahrheit gibt.
+8. **Dashboard-Artifact gebaut:** https://claude.ai/artifact/VLkb2kWPRNiMnX3kGgdyEX
+   (Funnel Gefunden→Bewertet→Relevant→Beworben, Status-Verteilung, Tabelle der aktuell
+   relevanten Treffer ≥ Score 40). Aktuell ein **Snapshot** (Stand ~113/450 bewertet, waehrend
+   der Backfill noch lief), kein Live-Feed: Notion hat waehrend des Aufbaus das
+   SQL-Abfrage-Kontingent dieses Workspace fuer `notion-query-data-sources` erschoepft
+   (Reset nach ca. 60 Min, Business-Tier hat ein hoeheres Kontingent). Sobald Backfill fertig
+   ist und das Kontingent zurueckgesetzt wurde: Datensaetze im Dashboard auf eine echte
+   Live-Notion-SQL-Abfrage umstellen (Connector "Notion") statt der aktuellen festen
+   JSON-Snapshots.
+9. **Beobachtung aus den echten Backfill-Daten:** die breiten Suchbegriffe
+   (Demand Planner, Export Control Coordinator, Product Manager, Application Manager)
+   liefern fast ausschliesslich Treffer unter dem Mindest-Score 40 (~92% Verworfen-Quote in
+   der ersten Stichprobe) — die gezielten Suchen (IT Project Manager, Scrum Master) liefern
+   die einzigen relevanten Treffer bisher. Nach Abschluss des Backfills pruefen, ob die
+   breiten Suchbegriffe als Plattformen-Zeilen deaktiviert werden sollen (Rauschen/Kosten
+   ohne Nutzen).
 
 ## Nächste Schritte
 
