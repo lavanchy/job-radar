@@ -43,7 +43,7 @@
       "parameters": {
         "promptType": "define",
         "hasOutputParser": true,
-        "text": "=Du bist ein Recruiting-Assistent. Bewerte, wie gut die folgende Stellenanzeige zum Profil der Person passt (0-100 Prozent).\n\n--- PROFIL ---\n{{ $(\"Format Profil\").item.json.profilText }}\n\n--- STELLENANZEIGE ---\nTitel: {{ $(\"Get Treffer\").item.json.property_titel }}\nFirma: {{ $(\"Get Treffer\").item.json.property_firma }}\nBeschreibung: {{ $(\"Get Treffer\").item.json.property_beschreibung }}\n\nGib einen Fit-Score (0-100) und eine kurze Begruendung (1-2 Saetze) zurueck.",
+        "text": "=Du bist ein Recruiting-Assistent. Bewerte, wie gut die folgende Stellenanzeige zum Profil der Person passt (0-100 Prozent).\n\nWICHTIG:\n- Wenn die Stellenanzeige ein im Profil unter \"Ausschlusskriterien\" als NO-GO genanntes Merkmal eindeutig erfuellt (z.B. SAP), vergib maximal 10 Punkte, unabhaengig von sonstigen Uebereinstimmungen, und nenne das NO-GO explizit in der Begruendung.\n- Beruecksichtige die im Profil genannten Plus-Keywords (Bonus) als klaren positiven Faktor und die Minus-Keywords (Abwertung) als klaren negativen Faktor, aber nicht als Ausschluss.\n\n--- PROFIL ---\n{{ $(\"Format Profil\").item.json.profilText }}\n\n--- STELLENANZEIGE ---\nTitel: {{ $(\"Get Treffer\").item.json.property_titel }}\nFirma: {{ $(\"Get Treffer\").item.json.property_firma }}\nBeschreibung: {{ $(\"Get Treffer\").item.json.property_beschreibung }}\n\nGib einen Fit-Score (0-100) und eine kurze Begruendung (1-2 Saetze) zurueck.",
         "options": { "systemMessage": "Du bewertest Stellenanzeigen objektiv gegen ein Kandidatenprofil und antwortest ausschliesslich im geforderten JSON-Format." }
       }
     },
@@ -107,7 +107,7 @@
         "promptType": "define",
         "hasOutputParser": false,
         "text": "=Du bist ein professioneller Bewerbungsschreiber. Erstelle ein kurzes, direktes Motivationsschreiben (max. 250 Woerter) auf Deutsch, ohne Floskeln, konkret und wo moeglich metrisch fundiert.\n\n--- PROFIL (inkl. Ton-Praeferenz) ---\n{{ $(\"Format Profil\").item.json.profilText }}\n\n--- STELLENANZEIGE ---\nTitel: {{ $(\"Get Treffer\").item.json.property_titel }}\nFirma: {{ $(\"Get Treffer\").item.json.property_firma }}\nBeschreibung: {{ $(\"Get Treffer\").item.json.property_beschreibung }}\n\nGib nur den fertigen Bewerbungstext zurueck, ohne zusaetzliche Kommentare.",
-        "options": { "systemMessage": "Du schreibst ehrliche, metrisch fundierte Bewerbungen ohne KI-Floskeln." }
+        "options": { "systemMessage": "Du schreibst ehrliche, metrisch fundierte Bewerbungen ohne KI-Floskeln. Erfinde KEINE Fakten (z.B. Wohnort, Zertifikate, Erfahrungen), die nicht explizit im Profil oder in der Stellenanzeige stehen. Bei Standortfragen beziehe dich nur auf die im Profil genannte Standort-Praeferenz, nicht auf einen angenommenen Wohnort." }
       }
     },
     {

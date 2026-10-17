@@ -166,15 +166,82 @@ wiederholen (Treffer-Seite `3fc2b546-7b82-81fc-a327-f6446a0fcad9`, Titel "TEST: 
   (`https://app.notion.com/p/3fc2b5467b82812094e6f24a34bb4931`) — Kurzanleitung für jeden, der
   diese Notion-Vorlage öffnet oder dupliziert (Setup-Checkliste, was in welche DB gehört).
 
+## Update (2026-10-17, Abend) — Git-Commit, Profil befüllt, Österreich-Jobsuche recherchiert
+
+- **Erster Commit** (`385f144`): alle Workflows, docker-compose, docs, setup-Skript. `.gitignore`
+  gefixt (`.env*` blockte vorher versehentlich auch `.env.example`).
+- **Profil-DB befüllt** mit echten Daten aus CV/Portfolio (epunkt-Lebenslauf, lavanchyautomation.ch):
+  Gesuchte Rollen (Requirements Engineer, IT-Projektleiter, n8n/Prozessautomatisierung, Business
+  Analyst), Skills, Standort = **Lenzing, Oberösterreich + 30km Umkreis, Teilzeit 40-80%**,
+  Ausschlusskriterien (Pensum/Radius-Grenzen, keine reinen Devrollen ohne Prozessbezug),
+  Ton-Präferenz (direkt, metrisch, Stil von lavanchyautomation.ch), CV-Referenz (Kernfakten
+  inline). Gehaltsvorstellung bewusst leer gelassen (nicht angegeben).
+- **Plattformen-Recherche für Österreich/Lenzing:** EURES, karriere.at, AMS "alle jobs" geprüft.
+  **Ehrliches Ergebnis: keine davon hat eine offiziell dokumentierte RSS/API-Schnittstelle.**
+  Alle drei als neue Zeilen angelegt (`Aktiv=false`, da noch nicht verifiziert):
+  - **EURES** — bester Kandidat: nutzt laut Dritt-Scraper-Doku intern eine `jv-search` REST-API
+    mit NUTS-Region-Filter (AT31 = Oberösterreich). Keine offizielle Doku, aber öffentliches
+    EU-Interesse → risikoärmer einzuschätzen. Exakter Endpunkt/Parameter noch nicht verifiziert.
+  - **karriere.at** — grösste AT-Jobbörse, kein RSS (nur E-Mail-Jobalarm), via RSS-Bridge
+    (XPathBridge) auf `karriere.at/jobs/vöcklabruck` (20km-Umkreis, deckt Lenzing ab) machbar.
+  - **AMS "alle jobs"** — staatlicher Aggregator, weder RSS noch API gefunden.
+  - Neue Legal-Status-Option **"Inoffizielle API (undokumentiert)"** ergänzt (für EURES-Fall,
+    passte in keine bestehende Kategorie).
+  - **RSS-Bridge-Testlauf fehlgeschlagen:** `docker-compose up` lief lokal, aber der Container
+    antwortete nicht auf HTTP-Requests (TCP verbindet, aber kein Response) — vermutlich
+    Netzwerk-Restriktion dieser Agent-Sandbox (ausgehende Verbindungen blockiert), kein Bug im
+    Setup selbst. Container danach wieder abgebaut (`docker-compose down`). **Echte Verifikation
+    von RSS-Bridge-Bridges und der EURES-API muss auf einem Host mit normalem Internetzugang
+    passieren** (z.B. mit Browser-DevTools auf eures.europa.eu, oder RSS-Bridge auf einem
+    erreichbaren Server deployen — localhost auf diesem Rechner ist für die n8n-Cloud-Instanz
+    ohnehin nicht erreichbar, RSS-Bridge muss production-seitig irgendwo öffentlich laufen).
+
+## Update (2026-10-17, spät) — Echtes Scraping statt RSS-Bridge, Keyword-Scoring
+
+- **karriere.at-Scraping gebaut und live verifiziert** (nicht via RSS-Bridge, sondern direkt im
+  Collector-Workflow mit HTTP Request + HTML-Node): `robots.txt` von karriere.at erlaubt
+  automatisierten Zugriff explizit (`User-agent: * / Disallow:`, nur 2 SEO-Bots gesperrt).
+  Suchergebnisse sind serverseitig gerendert (kein JS nötig). Neuer Scraping-Pfad im Collector
+  (Switch jetzt 4 Ausgänge: rss/api/scraping/fallback): HTTP Request (HTML als Text) → HTML-Node
+  (CSS-Selektoren `a.m-jobsListItem__titleLink`, `a.m-jobsListItem__companyName`, je mit
+  `returnArray`) → Set (Arrays zu `jobs`-Array zippen) → Split Out → normalisieren → bestehende
+  Dedup-Kette. Mit echtem Live-Request getestet: **15 echte Stellenanzeigen korrekt extrahiert**
+  und durch die komplette Pipeline bis zum Dedup-Hash verarbeitet (execution 12367).
+  - 3 neue Plattformen-Zeilen angelegt und **aktiv**: karriere.at IT Project Manager / Scrum
+    Master / Requirements Engineering, je Lenzing+30km. Neuer Legal-Status **"Scraping erlaubt
+    (robots.txt)"** ergänzt.
+- **willhaben.at bewusst NICHT automatisiert**: `robots.txt` verbietet automatisierten Zugriff
+  explizit im Klartext UND sperrt genau die Job-Suche (`Disallow: /jobs/suche?*`,
+  `Disallow: /*?*keyword=*`) — klarer ToS-Verstoss, auch wenn vom Nutzer gewünscht. Als
+  Plattformen-Zeile dokumentiert (`Aktiv=false`, Legal-Status "Scraping-riskant") mit Begründung,
+  statt stillschweigend wegzulassen.
+- **RSS-Bridge-Ansatz verworfen** zugunsten von direktem Scraping im Workflow — einfacher (keine
+  zusätzliche Server-Komponente nötig) und für karriere.at durch robots.txt klar gedeckt.
+  EURES/AMS bleiben wie zuvor dokumentierte, noch unverifizierte Kandidaten.
+- **Keyword-basiertes Scoring ergänzt**: zwei neue Profil-Zeilen "Plus-Keywords (Bonus)" (n8n,
+  Scrum, Requirements Engineering, Prozessautomatisierung, Camunda, Business Analyse, Teilzeit,
+  Remote, ...) und "Minus-Keywords (Abwertung)" (reine Entwicklung ohne Prozessbezug,
+  Schichtarbeit, strikt Vollzeit, hohe Reisetätigkeit, ...). **SAP als harter NO-GO** in
+  Ausschlusskriterien ergänzt. Fit-Score-Prompt explizit angepasst: NO-GO-Treffer → Score ≤10,
+  unabhängig von sonstigen Übereinstimmungen. **Live getestet:** SAP-Stelle → Score 3 ("NO-GO
+  erfüllt..."), passende n8n/Requirements-Stelle → Score 88 + automatisch generierte, faktisch
+  korrekte Bewerbung (echte Stationen/Zahlen aus dem CV).
+- **Bug gefunden & gefixt:** die Bewerbungs-KI hat im Test spontan "Ich wohne in Lenzing"
+  geschrieben — nicht im Profil, reine Erfindung. System-Prompt von "Bewerbung erstellen" jetzt
+  mit explizitem Verbot erfundener Fakten (Wohnort, Zertifikate, Erfahrungen) ergänzt.
+- Profil vollständig befüllt mit echten CV-Daten (siehe vorheriger Abschnitt).
+- `workflows/collector.json` (27 statt 19 Nodes) und `workflows/fit-score-auto-apply.json`
+  resynchronisiert.
+
 ## Nächste Schritte
 
-1. Beide Workflows in n8n aktivieren/publishen, sobald du bereit bist (aktuell bewusst inaktiv).
-2. Entscheiden ob der Einrichtungs-Agent veröffentlicht werden soll.
-3. Plattformen-DB mit echten, für Loïc relevanten Quellen befüllen (aktuell nur Beispielzeilen).
-4. Profil-DB mit echten Angaben ausfüllen (aktuell nur Platzhalter/Hinweise) — wichtig, sonst
-   bleibt der Fit-Score bei 0 (siehe Testlauf oben).
-5. Optional: HTTP/API-Normalisierung pro echter Plattform verfeinern (aktuell generische
-   Best-Guess-Feldnamen, siehe README "Bekannte Grenzen").
-6. Testdaten aufräumen: Treffer-Seite "TEST: Data Engineer (n8n)"
-   (`3fc2b546-7b82-81fc-a327-f6446a0fcad9`) kann gelöscht werden, sobald nicht mehr als
-   Test-Fixture gebraucht.
+1. **EURES-API verifizieren** (optional, zusätzliche Quelle): per Browser-DevTools auf
+   eures.europa.eu den echten `jv-search`-Request mitschneiden, Plattformen-Zeile aktivieren.
+2. Workflows in n8n aktivieren/publishen — 3 aktive Plattformen (karriere.at) sind startklar.
+3. Entscheiden ob der Einrichtungs-Agent veröffentlicht werden soll.
+4. Gehaltsvorstellung in Profil ergänzen, falls gewünscht (aktuell bewusst leer).
+5. Testdaten aufräumen: Treffer-Seite "TEST: Data Engineer (n8n)"
+   (`3fc2b546-7b82-81fc-a327-f6446a0fcad9`) kann gelöscht werden.
+6. AMS "alle jobs" bleibt als unverifizierter Kandidat dokumentiert (RSS-Bridge-Ansatz
+   überholt — bei Bedarf gleiches Scraping-Muster wie karriere.at anwenden, falls robots.txt
+   das erlaubt — noch nicht geprüft).

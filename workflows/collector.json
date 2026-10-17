@@ -84,7 +84,8 @@
         "rules": {
           "values": [
             { "outputKey": "rss", "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [{ "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "RSS-native" }, { "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "RSS-Bridge" }], "combinator": "or" } },
-            { "outputKey": "http", "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [{ "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "API" }, { "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "Scraping" }], "combinator": "or" } }
+            { "outputKey": "api", "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [{ "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "API" }], "combinator": "or" } },
+            { "outputKey": "scraping", "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [{ "leftValue": "={{ $json.property_strategie }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "Scraping" }], "combinator": "or" } }
           ]
         },
         "options": { "fallbackOutput": "extra", "renameFallbackOutput": "Unbekannt" }
@@ -280,6 +281,86 @@
       "typeVersion": 1,
       "position": [1120, 528],
       "parameters": {}
+    },
+    {
+      "id": "c5b2d30f-308a-40de-b71d-45c1b99fc054",
+      "name": "Scraping: Seite abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [1120, 640],
+      "parameters": { "method": "GET", "url": "={{ $json.property_such_query_oder_feed_url }}", "options": { "response": { "response": { "responseFormat": "text" } } } },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "cb7963fa-4a41-490f-afbe-48241cd76989",
+      "name": "Scraping: Fehler - ueberspringen",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1344, 720],
+      "parameters": {}
+    },
+    {
+      "id": "c0e516c6-be2a-447c-8c2e-97d8acab98bf",
+      "name": "Scraping: Jobs extrahieren",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [1344, 640],
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "sourceData": "json",
+        "extractionValues": {
+          "values": [
+            { "key": "titel", "cssSelector": "a.m-jobsListItem__titleLink", "returnValue": "text", "returnArray": true },
+            { "key": "link", "cssSelector": "a.m-jobsListItem__titleLink", "returnValue": "attribute", "attribute": "href", "returnArray": true },
+            { "key": "firma", "cssSelector": "a.m-jobsListItem__companyName", "returnValue": "text", "returnArray": true }
+          ]
+        }
+      }
+    },
+    {
+      "id": "07220976-777f-4dc4-bbe5-63c7102bbddc",
+      "name": "Scraping: Jobs zusammenfuehren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1568, 640],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": { "assignments": [{ "id": "sj1", "name": "jobs", "type": "array", "value": "={{ $json.titel.map((t, i) => ({ titel: t, link: $json.link[i], firma: $json.firma[i] })) }}" }] }
+      }
+    },
+    {
+      "id": "f6e92cdb-950c-455f-8a1e-6eeb55e6b695",
+      "name": "Scraping: Jobs aufteilen",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1.1,
+      "position": [1792, 640],
+      "parameters": { "fieldToSplitOut": "jobs", "include": "noOtherFields" }
+    },
+    {
+      "id": "e8e7d665-c6b8-4503-89d7-1309b9a746a4",
+      "name": "Scraping normalisieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [2016, 640],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "sn1", "name": "titel", "type": "string", "value": "={{ $json.titel }}" },
+            { "id": "sn2", "name": "firma", "type": "string", "value": "={{ $json.firma }}" },
+            { "id": "sn3", "name": "link", "type": "string", "value": "={{ $json.link }}" },
+            { "id": "sn4", "name": "beschreibung", "type": "string", "value": "" },
+            { "id": "sn5", "name": "gefundenAm", "type": "string", "value": "={{ $now.toISO() }}" },
+            { "id": "sn6", "name": "plattformId", "type": "string", "value": "={{ $(\"Plattform: Letzter Lauf setzen\").item.json.id }}" },
+            { "id": "sn7", "name": "plattformName", "type": "string", "value": "={{ $(\"Plattform: Letzter Lauf setzen\").item.json.property_name }}" }
+          ]
+        }
+      }
     }
   ],
   "connections": {
@@ -289,7 +370,7 @@
     "Heartbeat (Loop-Fortsetzung sichern)": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 1 }]] },
     "Batch abschliessen": { "main": [[{ "node": "Plattform fuer Plattform", "type": "main", "index": 0 }]] },
     "Plattform fuer Plattform": { "main": [[{ "node": "Alle Plattformen verarbeitet", "type": "main", "index": 0 }], [{ "node": "Plattform: Letzter Lauf setzen", "type": "main", "index": 0 }]] },
-    "Strategie routen": { "main": [[{ "node": "RSS/RSS-Bridge Feed lesen", "type": "main", "index": 0 }], [{ "node": "API/Scraping-Quelle abfragen", "type": "main", "index": 0 }], [{ "node": "Unbekannte Strategie ueberspringen", "type": "main", "index": 0 }]] },
+    "Strategie routen": { "main": [[{ "node": "RSS/RSS-Bridge Feed lesen", "type": "main", "index": 0 }], [{ "node": "API/Scraping-Quelle abfragen", "type": "main", "index": 0 }], [{ "node": "Scraping: Seite abrufen", "type": "main", "index": 0 }], [{ "node": "Unbekannte Strategie ueberspringen", "type": "main", "index": 0 }]] },
     "RSS/RSS-Bridge Feed lesen": { "main": [[{ "node": "RSS normalisieren", "type": "main", "index": 0 }], [{ "node": "RSS-Fehler - ueberspringen", "type": "main", "index": 0 }]] },
     "RSS normalisieren": { "main": [[{ "node": "Dedup-Hash berechnen", "type": "main", "index": 0 }]] },
     "Dedup-Hash berechnen": { "main": [[{ "node": "Dedup-Check in Treffer-DB", "type": "main", "index": 0 }]] },
@@ -302,7 +383,13 @@
     "API/Scraping normalisieren": { "main": [[{ "node": "Dedup-Hash berechnen", "type": "main", "index": 0 }]] },
     "Unbekannte Strategie ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
     "RSS-Fehler - ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
-    "HTTP-Fehler - ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] }
+    "HTTP-Fehler - ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
+    "Scraping: Seite abrufen": { "main": [[{ "node": "Scraping: Jobs extrahieren", "type": "main", "index": 0 }], [{ "node": "Scraping: Fehler - ueberspringen", "type": "main", "index": 0 }]] },
+    "Scraping: Fehler - ueberspringen": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },
+    "Scraping: Jobs extrahieren": { "main": [[{ "node": "Scraping: Jobs zusammenfuehren", "type": "main", "index": 0 }]] },
+    "Scraping: Jobs zusammenfuehren": { "main": [[{ "node": "Scraping: Jobs aufteilen", "type": "main", "index": 0 }]] },
+    "Scraping: Jobs aufteilen": { "main": [[{ "node": "Scraping normalisieren", "type": "main", "index": 0 }]] },
+    "Scraping normalisieren": { "main": [[{ "node": "Dedup-Hash berechnen", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }
