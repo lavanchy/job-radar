@@ -25,6 +25,9 @@
         "filters": { "conditions": [{ "key": "Aktiv|checkbox", "condition": "equals", "checkboxValue": true }] },
         "simple": true
       },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
       "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
     },
     {
@@ -48,6 +51,9 @@
         "propertiesUi": { "propertyValues": [{ "key": "Letzter Lauf|date", "date": "={{ $now.toISO() }}", "range": false, "includeTime": true }] },
         "simple": true
       },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
       "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
     },
     {
@@ -138,6 +144,14 @@
       }
     },
     {
+      "id": "f3efda69-98c6-48b1-9617-b293ebc387e8",
+      "name": "Sicherheits-Limit (max 20 pro Lauf)",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [1680, 288],
+      "parameters": { "maxItems": 20, "keep": "firstItems" }
+    },
+    {
       "id": "7d478e62-c697-4e24-9844-36e924e188a0",
       "name": "Dedup-Check in Treffer-DB",
       "type": "n8n-nodes-base.notion",
@@ -147,15 +161,36 @@
         "resource": "databasePage",
         "operation": "getAll",
         "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_TREFFER_DATA_SOURCE_ID" },
-        "returnAll": false,
-        "limit": 1,
-        "filterType": "manual",
-        "matchType": "allFilters",
-        "filters": { "conditions": [{ "key": "Dedup-Hash|rich_text", "condition": "equals", "richTextValue": "={{ $json.dedupHash }}" }] },
+        "returnAll": true,
+        "filterType": "none",
         "simple": true
       },
       "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
       "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
+    },
+    {
+      "id": "57566ef1-75ef-4ea5-876b-629655e8b025",
+      "name": "Bekannte Hashes sammeln",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1792, 448],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": { "assignments": [{ "id": "bh1", "name": "bekannteHashes", "type": "array", "value": "={{ $input.all().map(i => i.json.property_dedup_hash).filter(h => h) }}" }] }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "6042bddc-1670-42ea-92d3-29be4ddb1c96",
+      "name": "Dedup-Ergebnis zusammenfuehren",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1920, 288],
+      "parameters": { "mode": "combine", "combineBy": "combineAll" }
     },
     {
       "id": "135abdc5-16ae-4fc3-a2b0-1f7d946e7b0e",
@@ -166,7 +201,7 @@
       "parameters": {
         "conditions": {
           "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
-          "conditions": [{ "leftValue": "={{ $json.id ? \"vorhanden\" : \"leer\" }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "leer" }],
+          "conditions": [{ "leftValue": "={{ ($json.bekannteHashes || []).includes($json.dedupHash) ? \"vorhanden\" : \"leer\" }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "leer" }],
           "combinator": "and"
         }
       }
@@ -181,20 +216,23 @@
         "resource": "databasePage",
         "operation": "create",
         "dataSourceId": { "__rl": true, "mode": "id", "value": "REPLACE_ME_TREFFER_DATA_SOURCE_ID" },
-        "title": "={{ $(\"Dedup-Hash berechnen\").item.json.titel }}",
+        "title": "={{ $json.titel }}",
         "propertiesUi": {
           "propertyValues": [
-            { "key": "Firma|rich_text", "textContent": "={{ $(\"Dedup-Hash berechnen\").item.json.firma }}" },
-            { "key": "Link|url", "urlValue": "={{ $(\"Dedup-Hash berechnen\").item.json.link }}" },
-            { "key": "Beschreibung|rich_text", "textContent": "={{ $(\"Dedup-Hash berechnen\").item.json.beschreibung }}" },
-            { "key": "Gefunden am|date", "date": "={{ $(\"Dedup-Hash berechnen\").item.json.gefundenAm }}", "range": false, "includeTime": false },
-            { "key": "Plattform|relation", "relationValue": ["={{ $(\"Dedup-Hash berechnen\").item.json.plattformId }}"] },
-            { "key": "Dedup-Hash|rich_text", "textContent": "={{ $(\"Dedup-Hash berechnen\").item.json.dedupHash }}" },
+            { "key": "Firma|rich_text", "textContent": "={{ $json.firma }}" },
+            { "key": "Link|url", "urlValue": "={{ $json.link }}" },
+            { "key": "Beschreibung|rich_text", "textContent": "={{ $json.beschreibung }}" },
+            { "key": "Gefunden am|date", "date": "={{ $json.gefundenAm }}", "range": false, "includeTime": false },
+            { "key": "Plattform|relation", "relationValue": ["={{ $json.plattformId }}"] },
+            { "key": "Dedup-Hash|rich_text", "textContent": "={{ $json.dedupHash }}" },
             { "key": "Status|status", "statusValue": "Neu" }
           ]
         },
         "simple": true
       },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
       "credentials": { "notionApi": { "id": "REPLACE_ME", "name": "Notion account" } }
     },
     {
@@ -366,15 +404,18 @@
   "connections": {
     "Alle 6 Stunden": { "main": [[{ "node": "Aktive Plattformen holen", "type": "main", "index": 0 }]] },
     "Aktive Plattformen holen": { "main": [[{ "node": "Plattform fuer Plattform", "type": "main", "index": 0 }]] },
-    "Plattform: Letzter Lauf setzen": { "main": [[{ "node": "Heartbeat (Loop-Fortsetzung sichern)", "type": "main", "index": 0 }, { "node": "Strategie routen", "type": "main", "index": 0 }]] },
+    "Plattform: Letzter Lauf setzen": { "main": [[{ "node": "Heartbeat (Loop-Fortsetzung sichern)", "type": "main", "index": 0 }, { "node": "Strategie routen", "type": "main", "index": 0 }, { "node": "Dedup-Check in Treffer-DB", "type": "main", "index": 0 }]] },
     "Heartbeat (Loop-Fortsetzung sichern)": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 1 }]] },
     "Batch abschliessen": { "main": [[{ "node": "Plattform fuer Plattform", "type": "main", "index": 0 }]] },
     "Plattform fuer Plattform": { "main": [[{ "node": "Alle Plattformen verarbeitet", "type": "main", "index": 0 }], [{ "node": "Plattform: Letzter Lauf setzen", "type": "main", "index": 0 }]] },
     "Strategie routen": { "main": [[{ "node": "RSS/RSS-Bridge Feed lesen", "type": "main", "index": 0 }], [{ "node": "API/Scraping-Quelle abfragen", "type": "main", "index": 0 }], [{ "node": "Scraping: Seite abrufen", "type": "main", "index": 0 }], [{ "node": "Unbekannte Strategie ueberspringen", "type": "main", "index": 0 }]] },
     "RSS/RSS-Bridge Feed lesen": { "main": [[{ "node": "RSS normalisieren", "type": "main", "index": 0 }], [{ "node": "RSS-Fehler - ueberspringen", "type": "main", "index": 0 }]] },
     "RSS normalisieren": { "main": [[{ "node": "Dedup-Hash berechnen", "type": "main", "index": 0 }]] },
-    "Dedup-Hash berechnen": { "main": [[{ "node": "Dedup-Check in Treffer-DB", "type": "main", "index": 0 }]] },
-    "Dedup-Check in Treffer-DB": { "main": [[{ "node": "Bereits vorhanden?", "type": "main", "index": 0 }]] },
+    "Dedup-Hash berechnen": { "main": [[{ "node": "Sicherheits-Limit (max 20 pro Lauf)", "type": "main", "index": 0 }]] },
+    "Sicherheits-Limit (max 20 pro Lauf)": { "main": [[{ "node": "Dedup-Ergebnis zusammenfuehren", "type": "main", "index": 1 }]] },
+    "Dedup-Check in Treffer-DB": { "main": [[{ "node": "Bekannte Hashes sammeln", "type": "main", "index": 0 }]] },
+    "Bekannte Hashes sammeln": { "main": [[{ "node": "Dedup-Ergebnis zusammenfuehren", "type": "main", "index": 0 }]] },
+    "Dedup-Ergebnis zusammenfuehren": { "main": [[{ "node": "Bereits vorhanden?", "type": "main", "index": 0 }]] },
     "Bereits vorhanden?": { "main": [[{ "node": "Treffer anlegen", "type": "main", "index": 0 }], [{ "node": "Duplikat - nichts tun", "type": "main", "index": 0 }]] },
     "Treffer anlegen": { "main": [[{ "node": "Fit-Score & Auto-Apply starten", "type": "main", "index": 0 }]] },
     "Fit-Score & Auto-Apply starten": { "main": [[{ "node": "Batch abschliessen", "type": "main", "index": 0 }]] },

@@ -233,6 +233,55 @@ wiederholen (Treffer-Seite `3fc2b546-7b82-81fc-a327-f6446a0fcad9`, Titel "TEST: 
 - `workflows/collector.json` (27 statt 19 Nodes) und `workflows/fit-score-auto-apply.json`
   resynchronisiert.
 
+## Update (2026-10-17, Nacht) — Echter Produktions-Vorfall: Dedup-Check komplett kaputt
+
+Auf Nutzerwunsch ("teste mit meinen echten Daten") lief der Collector mehrfach **ungepinnt gegen
+die echte n8n/Notion-Instanz**. Das deckte zwei gravierende, bis dahin unentdeckte Bugs auf, die
+alle vorherigen Tests (immer mit gepinnten/simulierten Notion-Nodes) nicht zeigen konnten:
+
+1. **Notion-"Get Many" läuft bei mehreren Items nur einmal.** Entgegen der Annahme, dass jeder
+   n8n-Node pro Input-Item einmal ausführt, nutzt der Notion-"Get Many"-Node bei mehreren
+   gleichzeitigen Items nur das ERSTE Item für seinen Filterausdruck und läuft dann nur einmal
+   insgesamt — nicht N-mal. Der ursprüngliche per-Item-Dedup-Check (`returnAll:false, limit:1,
+   filterType:manual` mit `={{ $json.dedupHash }}`) hat deshalb nur den allerersten von 15 echten
+   Treffern pro Plattform geprüft, der Rest wurde nie korrekt auf Duplikate geprüft.
+   **Fix:** Dedup-Check umgebaut auf Bulk-Fetch (einmal pro Plattform ALLE vorhandenen
+   Dedup-Hashes holen, `filterType:"none"`, `returnAll:true`) + lokaler Abgleich per Merge
+   (`combineAll`) und IF-Node, ganz ohne wiederholte Notion-Lookups pro Item.
+2. **`executeOnce:true` beim Node-Anlegen via `addNode`-Operation wird stillschweigend verworfen**
+   (kein gültiges Feld für diese Operation). Der neue "Bekannte Hashes sammeln"-Node lief dadurch
+   pro vorhandenem Treffer einmal statt einmal gesamt — kombiniert mit dem `combineAll`-Merge
+   (Kreuzprodukt) führte das zu einer **Explosion**: die Zeile "karriere.at: Requirements
+   Engineering" erzeugte in einem Lauf 324 Treffer-Seiten (6 echte Jobs × ~54 bereits vorhandene
+   Treffer zu dem Zeitpunkt) statt der erwarteten 6. **Fix:** `executeOnce:true` nachtraeglich per
+   `setNodeSettings` gesetzt (das Feld wird dort korrekt uebernommen).
+3. Zusaetzlich aufgedeckt: **Notion-Rate-Limit** ("too many requests") bei vielen schnellen
+   Schreibvorgaengen in Folge (Collector + parallel feuernde Fit-Score-Subworkflows teilen sich
+   dasselbe Integrations-Kontingent) — `retryOnFail` (5 Versuche, 2s Backoff) auf allen
+   Notion-Nodes in beiden Workflows ergaenzt.
+4. **Sicherheits-Limit ergaenzt:** unabhaengig von der Ursache liefert der Collector jetzt
+   maximal 20 Treffer pro Plattform und Lauf (`n8n-nodes-base.limit` direkt nach dem
+   Dedup-Hash). Verhindert zukuenftig jede Form von Mengen-Explosion, egal wodurch ausgeloest.
+5. **Wichtig — keine Daten-Korruption:** Stichproben der 324 "Requirements Engineering"-Treffer
+   zeigen echte, unterschiedliche Stellenanzeigen (verschiedene Links/Titel/Firmen), keine
+   literalen Duplikate derselben Stelle. Grund fuer die hohe Zahl: karriere.at matcht den
+   Suchbegriff "Requirements Engineering" offenbar inkonsistent — mal 6 Treffer (reproduzierbar
+   per manuellem curl-Test mit Bindestrich-Slug), einmal ein serverseitiger Fallback auf eine
+   breite Regions-Liste. URL wurde auf die saubere Bindestrich-Form umgestellt
+   (`/jobs/requirements-engineering/lenzing?radius=30`), das Sicherheits-Limit faengt den Rest ab.
+6. **Reale Kosten:** rund 395 echte Fit-Score-Sub-Workflow-Laeufe wurden ausgeloest (je ein
+   Claude-Haiku-Call, bei Scores ≥70 zusaetzlich ein Claude-Sonnet-Call). Die 324 Treffer unter
+   "Requirements Engineering" bleiben als echte, bereits bewertete Daten erhalten (Loeschen
+   wuerde die schon bezahlte Fit-Score-Arbeit verschwenden) — koennen bei Bedarf manuell nach
+   niedrigem Fit-Score gefiltert/archiviert werden.
+7. Finaler Testlauf nach allen Fixes: **9 Sekunden Laufzeit, 0 neue Treffer** (alles korrekt als
+   Duplikat erkannt) — bestätigt, dass der Dedup-Check jetzt wirklich funktioniert.
+8. `workflows/collector.json` final resynchronisiert (30 Nodes).
+
+**Lektion:** n8n-Knoten verhalten sich bei mehreren gleichzeitigen Items nicht einheitlich wie
+erwartet "einmal pro Item" — das muss bei jedem neuen Node-Typ mit mehreren echten Items
+verifiziert werden, nicht nur mit gepinnten Einzel-Item-Tests.
+
 ## Nächste Schritte
 
 1. **EURES-API verifizieren** (optional, zusätzliche Quelle): per Browser-DevTools auf
@@ -245,3 +294,5 @@ wiederholen (Treffer-Seite `3fc2b546-7b82-81fc-a327-f6446a0fcad9`, Titel "TEST: 
 6. AMS "alle jobs" bleibt als unverifizierter Kandidat dokumentiert (RSS-Bridge-Ansatz
    überholt — bei Bedarf gleiches Scraping-Muster wie karriere.at anwenden, falls robots.txt
    das erlaubt — noch nicht geprüft).
+7. Optional: die 324 "Requirements Engineering"-Treffer mit niedrigem Fit-Score durchsehen und
+   bei Bedarf auf Status "Verworfen" setzen oder löschen, um die Treffer-DB aufzuräumen.
